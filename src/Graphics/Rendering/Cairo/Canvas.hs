@@ -1,35 +1,35 @@
-{-# LANGUAGE CPP,GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP,GeneralizedNewtypeDeriving,RankNTypes #-}
 {-|
-Module      : SDL.Cairo.Canvas
+Module      : Graphics.Rendering.Cairo.Canvas
 Copyright   : Copyright (c) 2015 Anton Pirogov
 License     : MIT
 Maintainer  : anton.pirogov@gmail.com
 
 This module defines the 'Canvas' monad, which is a convenience wrapper around
-the underlying Cairo rendering and can be used with the same textures
-created by 'createCairoTexture'. You can also mix both, if the need arises.
+the underlying Cairo rendering and can be used with the same textures.
+You can also mix both APIs, if the need arises.
 
 The Canvas API imitates most of the drawing functions
 of the Processing language. See <http://processing.org/reference> for comparison.
-While having the Processing spirit, this module does not aim for a perfect mapping and
-deviates where necessary or appropriate. Nevertheless most Processing examples should be
-trivial to port to the Canvas API. Example:
+While having the Processing spirit, this module does not aim for a perfect
+mapping and deviates where necessary or appropriate. Nevertheless most
+Processing examples should be trivial to port to the Canvas API. Example:
 
 @
 \{\-\# LANGUAGE OverloadedStrings \#\-\}
 import SDL
-import Linear.V2 (V2(..))
 import SDL.Cairo
-import SDL.Cairo.Canvas
+import Linear.V2 (V2(..))
+import Graphics.Rendering.Cairo.Canvas
 
 main :: IO ()
 main = do
   initializeAll
-  window <- createWindow "SDL2 Cairo Canvas" defaultWindow
+  window <- createWindow "cairo-canvas using SDL2" defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
   texture <- createCairoTexture' renderer window
 
-  withCanvas texture $ do
+  withCairoTexture' texture $ runCanvas $ do
     background $ gray 102
     fill $ red 255 !\@ 128
     noStroke
@@ -45,9 +45,9 @@ main = do
 @
 
 -}
-module SDL.Cairo.Canvas (
+module Graphics.Rendering.Cairo.Canvas (
   -- * Entry point
-  Canvas, withCanvas, getCanvasSize,
+  Canvas, runCanvas, withRenderer, getCanvasSize,
   -- * Color and Style
   Color, Byte, gray, red, green, blue, rgb, (!@),
   stroke, fill, noStroke, noFill, strokeWeight, strokeJoin, strokeCap,
@@ -86,11 +86,8 @@ import System.Random (mkStdGen,setStdGen,randomRIO,Random)
 import Linear.V2 (V2(..))
 import Linear.V4 (V4(..))
 
-import SDL (Texture,TextureInfo(..),queryTexture)
 import qualified Graphics.Rendering.Cairo as C
 import Graphics.Rendering.Cairo (Render,LineJoin(..),LineCap(..),Format(..),Operator(..))
-
-import SDL.Cairo (withCairoTexture')
 
 -- | For values from 0 to 255
 type Byte = Word8
@@ -98,8 +95,7 @@ type Byte = Word8
 -- | RGBA Color is just a byte vector. Colors can be added, subtracted, etc.
 type Color = V4 Byte
 
-data CanvasState = CanvasState{ csSize :: V2 Double,    -- ^ texture size
-                                csSurface :: C.Surface, -- ^ Cairo surface
+data CanvasState = CanvasState{ csSize :: V2 Double,    -- ^ reported size
                                 csFG :: Maybe Color,    -- ^ stroke color
                                 csBG :: Maybe Color,    -- ^ fill color
                                 csImages :: [Image]     -- ^ keep track of images to free later
@@ -115,19 +111,28 @@ newtype RenderWrapper m a = Canvas { unCanvas :: StateT CanvasState m a }
 -- | wrapper around the Cairo 'Render' monad, providing a Processing-style API
 type Canvas = RenderWrapper Render
 
--- | draw on a SDL texture using the 'Canvas' monad
-withCanvas :: Texture -> Canvas a -> IO a
-withCanvas t c = withCairoTexture' t $ \s -> do
-  (TextureInfo _ _ w h) <- queryTexture t
+-- | draw on a Cairo surface using the 'Canvas' monad
+runCanvas = flip withCairoSurface
+
+withCairoSurface :: C.Surface -> Canvas a -> IO a
+withCairoSurface s m = do
+  w <- fromIntegral <$> C.imageSurfaceGetWidth s
+  h <- fromIntegral <$> C.imageSurfaceGetHeight s
+  withRenderer (C.renderWith s) (V2 w h) m
+
+-- | draw on a Cairo surface using the 'Canvas' monad
+withRenderer :: (forall a. Render a -> IO a)  -- ^ the renderer to use (e.g. 'Graphics.Rendering.Cairo.renderWith' surface)
+             -> V2 Double                     -- ^ reported canvas size
+             -> Canvas a -> IO a
+withRenderer renderer size c = do
   let defaults  = strokeWeight 1 >> strokeCap C.LineCapRound
-      initstate = CanvasState{ csSize = V2 (fromIntegral w) (fromIntegral h)
-                             , csSurface = s
+      initstate = CanvasState{ csSize = size
                              , csFG = Just $ gray 0
                              , csBG = Just $ gray 255
                              , csImages = []
                              }
-  (ret, result) <- C.renderWith s $ runStateT (unCanvas $ defaults >> c) initstate
-  forM_ (csImages result) $ \(Image s _ _) -> C.surfaceFinish s
+  (ret, result) <- renderer $ runStateT (unCanvas $ defaults >> c) initstate
+  forM_ (csImages result) $ \(Image s' _ _) -> C.surfaceFinish s'
   return ret
 
 ----
@@ -426,16 +431,15 @@ image' img@(Image _ (V2 ow oh) _) =
 -- operator and resizing when necessary. Use 'OperatorSource' to copy without
 -- blending effects. (Processing: @copy(),blend()@)
 blend :: Operator -> Image -> Dim -> Dim -> Canvas ()
-blend op (Image s _ _) sdim ddim = do
-  surf <- gets csSurface
-  lift $ copyFromToSurface op s sdim surf ddim
+blend op (Image s _ _) sdim ddim = lift $ C.withTargetSurface $ \surf ->
+  copyFromToSurface op s sdim surf ddim
 
 -- | get a copy of the image from current window (Processing: @get()@)
 grab :: Dim -> Canvas Image
 grab dim@(D _ _ w h) = do
-  surf <- gets csSurface
   i@(Image s _ _) <- createImage (V2 (round w) (round h))
-  lift $ copyFromToSurface OperatorSource surf dim s (D 0 0 w h)
+  lift $ C.withTargetSurface $ \surf ->
+    copyFromToSurface OperatorSource surf dim s (D 0 0 w h)
   return i
 
 ----

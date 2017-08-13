@@ -1,5 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP,OverloadedStrings #-}
 module Main where
+#if __GLASGOW_HASKELL__ < 710
+import Control.Applicative
+#endif
 import Control.Monad (unless)
 import Control.Monad.State (lift)
 
@@ -8,13 +11,13 @@ import Linear.V2 (V2(..))
 import Linear.Affine (Point(..))
 
 import SDL.Cairo
-import SDL.Cairo.Canvas
 import qualified Graphics.Rendering.Cairo as C
+import Graphics.Rendering.Cairo.Canvas
 
 main :: IO ()
 main = do
   initializeAll
-  window <- createWindow "SDL2 Cairo Canvas" defaultWindow
+  window <- createWindow "cairo-canvas demo" defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
 
   -- create a texture suitable to use cairo on
@@ -44,7 +47,7 @@ appLoop renderer texture framecount mousepos = do
       mousepos' = if null mousePositions then mousepos else head mousePositions
 
   -- draw on the texture
-  withCanvas texture $ do
+  withCairoTexture' texture $ runCanvas $ do
     drawExample
     drawRndCircle
     drawStars (fromIntegral framecount)
@@ -106,7 +109,7 @@ drawExample = do
     -- render some text
     let txtpos = V2 100 50
     textFont $ Font "Monospace" 30 False True
-    offset <- text "sdl2-cairo " txtpos
+    offset <- text "cairo-canvas " txtpos
     textFont $ Font "" 30 True False
     text "is AWESOME." $ txtpos + offset
     return ()
