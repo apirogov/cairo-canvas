@@ -20,11 +20,11 @@ library
   exposed-modules:     Graphics.Rendering.Cairo.Canvas
   --other-modules:
   build-depends:       base >=4.7 && <5
-                     , cairo >=0.13
-                     , linear
-                     , mtl
-                     , random
-                     , time
+                     , cairo >= 0.13.12 && < 0.14
+                     , mtl >= 2.3.1 && < 2.4
+                     , time >= 1.12.2 && < 1.13
+                     , random >= 1.3.1 && < 1.4
+                     , linear >= 1.23.1 && < 1.24
 
 flag builddemo
   description:       Build the little demo
@@ -45,6 +45,7 @@ executable cairo-canvas-test
                      , mtl
                      , random
                      , time
+
   else
     buildable:         False
 
