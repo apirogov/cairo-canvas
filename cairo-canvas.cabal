@@ -1,5 +1,5 @@
 name:                cairo-canvas
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Simpler drawing API for Cairo.
 description:         This library provides an alternative drawing API for
                      Cairo which is heavily inspired by Processing and

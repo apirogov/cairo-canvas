@@ -74,6 +74,7 @@ module Graphics.Rendering.Cairo.Canvas (
 import Control.Applicative
 #endif
 
+import Control.Monad (when, forM_, (<=<))
 import Control.Monad.State
 import Data.Word (Word8)
 
